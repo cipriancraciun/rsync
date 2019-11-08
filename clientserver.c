@@ -362,8 +362,10 @@ static char *finish_pre_exec(pid_t pid, int write_fd, int read_fd, char *request
 			write_buf(write_fd, *early_argv, strlen(*early_argv)+1);
 		j = 1; /* Skip arg0 name in argv. */
 	}
-	for ( ; argv[j]; j++)
-		write_buf(write_fd, argv[j], strlen(argv[j])+1);
+	if (argv) {
+		for ( ; argv[j]; j++)
+			write_buf(write_fd, argv[j], strlen(argv[j])+1);
+	}
 	write_byte(write_fd, 0);
 
 	close(write_fd);
@@ -510,8 +512,10 @@ static int rsync_module(int f_in, int f_out, int i, const char *addr, const char
 	char *name = lp_name(i);
 	int use_chroot = lp_use_chroot(i);
 	int ret, pre_exec_arg_fd = -1, pre_exec_error_fd = -1;
+	int bootstrap_exec_arg_fd = -1, bootstrap_exec_error_fd = -1;
 	int save_munge_symlinks;
 	pid_t pre_exec_pid = 0;
+	pid_t bootstrap_exec_pid = 0;
 	char *request = NULL;
 
 	set_env_str("RSYNC_MODULE_NAME", name);
@@ -688,8 +692,68 @@ static int rsync_module(int f_in, int f_out, int i, const char *addr, const char
 	log_init(1);
 
 #ifdef HAVE_PUTENV
-	if (*lp_prexfer_exec(i) || *lp_postxfer_exec(i)) {
+	if (*lp_bootstrap_exec(i) || *lp_prexfer_exec(i) || *lp_postxfer_exec(i)) {
 		int status;
+
+		/* For bootstrap exec, fork a child process to run the indicated
+		 * command, and wait for it to exit. */
+		if (*lp_bootstrap_exec(i)) {
+			int arg_fds[2], error_fds[2];
+			set_env_num("RSYNC_PID", (long)getpid());
+			if (pipe(arg_fds) < 0 || pipe(error_fds) < 0 || (bootstrap_exec_pid = fork()) < 0) {
+				rsyserr(FLOG, errno, "bootstrap exec preparation failed");
+				io_printf(f_out, "@ERROR: bootstrap exec preparation failed\n");
+				return -1;
+			}
+			if (bootstrap_exec_pid == 0) {
+				char buf[BIGPATHBUFLEN];
+				int j, len;
+				close(arg_fds[1]);
+				close(error_fds[0]);
+				bootstrap_exec_arg_fd = arg_fds[0];
+				bootstrap_exec_error_fd = error_fds[1];
+				set_blocking(bootstrap_exec_arg_fd);
+				set_blocking(bootstrap_exec_error_fd);
+				len = read_arg_from_pipe(bootstrap_exec_arg_fd, buf, BIGPATHBUFLEN);
+				if (len <= 0)
+					_exit(1);
+				set_env_str("RSYNC_REQUEST", buf);
+				for (j = 0; ; j++) {
+					len = read_arg_from_pipe(bootstrap_exec_arg_fd, buf,
+								 BIGPATHBUFLEN);
+					if (len <= 0) {
+						if (!len)
+							break;
+						_exit(1);
+					}
+					if (asprintf(&p, "RSYNC_ARG%d=%s", j, buf) >= 0)
+						putenv(p);
+				}
+				close(bootstrap_exec_arg_fd);
+				close(STDIN_FILENO);
+				dup2(bootstrap_exec_error_fd, STDOUT_FILENO);
+				close(bootstrap_exec_error_fd);
+				status = system(lp_bootstrap_exec(i));
+				if (!WIFEXITED(status))
+					_exit(1);
+				_exit(WEXITSTATUS(status));
+			}
+			close(arg_fds[0]);
+			close(error_fds[1]);
+			bootstrap_exec_arg_fd = arg_fds[1];
+			bootstrap_exec_error_fd = error_fds[0];
+			set_blocking(bootstrap_exec_arg_fd);
+			set_blocking(bootstrap_exec_error_fd);
+		}
+		if (bootstrap_exec_pid) {
+			err_msg = finish_pre_exec(bootstrap_exec_pid, bootstrap_exec_arg_fd, bootstrap_exec_error_fd,
+						  NULL, NULL, argv);
+			if (err_msg) {
+				rsyserr(FLOG, errno, "bootstrap exec failed");
+				io_printf(f_out, "@ERROR: bootstrap exec failed\n");
+				return -1;
+			}
+		}
 
 		/* For post-xfer exec, fork a new process to run the rsync
 		 * daemon while this process waits for the exit status and

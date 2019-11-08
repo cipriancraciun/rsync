@@ -130,6 +130,7 @@ typedef struct {
 	char *path;
 	char *postxfer_exec;
 	char *prexfer_exec;
+	char *bootstrap_exec;
 	char *refuse_options;
 	char *secrets_file;
 	char *syslog_tag;
@@ -210,6 +211,7 @@ static const all_vars Defaults = {
  /* path; */			NULL,
  /* postxfer_exec; */		NULL,
  /* prexfer_exec; */		NULL,
+ /* bootstrap_exec; */		NULL,
  /* refuse_options; */		NULL,
  /* secrets_file; */		NULL,
  /* syslog_tag; */		"rsyncd",
@@ -361,6 +363,7 @@ static struct parm_struct parm_table[] =
 #ifdef HAVE_PUTENV
  {"post-xfer exec",    P_STRING, P_LOCAL, &Vars.l.postxfer_exec,       NULL,0},
  {"pre-xfer exec",     P_STRING, P_LOCAL, &Vars.l.prexfer_exec,        NULL,0},
+ {"bootstrap exec",    P_STRING, P_LOCAL, &Vars.l.bootstrap_exec,      NULL,0},
 #endif
  {"read only",         P_BOOL,   P_LOCAL, &Vars.l.read_only,           NULL,0},
  {"refuse options",    P_STRING, P_LOCAL, &Vars.l.refuse_options,      NULL,0},
@@ -487,6 +490,7 @@ FN_LOCAL_STRING(lp_outgoing_chmod, outgoing_chmod)
 FN_LOCAL_STRING(lp_path, path)
 FN_LOCAL_STRING(lp_postxfer_exec, postxfer_exec)
 FN_LOCAL_STRING(lp_prexfer_exec, prexfer_exec)
+FN_LOCAL_STRING(lp_bootstrap_exec, bootstrap_exec)
 FN_LOCAL_STRING(lp_refuse_options, refuse_options)
 FN_LOCAL_STRING(lp_secrets_file, secrets_file)
 FN_LOCAL_STRING(lp_syslog_tag, syslog_tag)
